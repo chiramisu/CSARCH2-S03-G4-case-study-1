@@ -1,1 +1,1 @@
-# CSARCH2-S03-case-study-1
+# CSARCH2 S03 -- Case Study 1
