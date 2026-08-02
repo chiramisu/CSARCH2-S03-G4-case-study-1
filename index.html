@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Machine 4 - Decimal 32-bit Floating-Point Machine</title>
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <!--
+      VIEW - the markup only, no logic lives in here
+
+      everything is on purpose ugly, there is basically no css, the design
+      people on the team can go nuts later, just please keep the id names the
+      same or view.js stops finding the elements, or if you do rename something
+      rename it in view.js too, thats the only file that knows about ids
+    -->
+
+    <h1>Machine 4: Decimal 32-bit Floating-Point Machine</h1>
+    <p>IEEE 754 decimal32, densely packed decimal encoding. CSARCH2 simulation project, group 4.</p>
+
+    <hr />
+
+    <!-- 
+         PART 1, this is the one that actually works
+          -->
+    <section id="part1">
+      <h2>1. Convert decimal to decimal-based single precision</h2>
+
+      <fieldset>
+        <legend>Input</legend>
+
+        <p>
+          <label>
+            <input type="radio" name="inputMode" value="plain" checked />
+            Plain decimal (typing 420 means 420 x 10<sup>0</sup>)
+          </label>
+          <br />
+          <label>
+            <input type="radio" name="inputMode" value="scaled" />
+            Significand and custom base 10 exponent (like 1234567 x 10<sup>56</sup>)
+          </label>
+        </p>
+
+        <div id="plainFields">
+          <label for="plainInput">Decimal number</label>
+          <input id="plainInput" type="text" size="30" placeholder="420 or -4.20 or 0.00042" />
+        </div>
+
+        <div id="scaledFields" hidden>
+          <label for="significandInput">Significand</label>
+          <input id="significandInput" type="text" size="20" placeholder="1234567" />
+          &nbsp; x 10 ^ &nbsp;
+          <label for="exponentInput">Exponent</label>
+          <input id="exponentInput" type="text" size="8" placeholder="56" />
+        </div>
+
+        <p>
+          You can also type <code>Infinity</code>, <code>-Infinity</code>, <code>NaN</code> or
+          <code>sNaN</code> to see the special cases.
+        </p>
+
+        <p>
+          <button id="convertBtn" type="button">Convert</button>
+          <button id="clearBtn" type="button">Clear</button>
+        </p>
+      </fieldset>
+
+      <p id="errorBox" role="alert" hidden></p>
+      <p id="noteBox" hidden></p>
+
+      <fieldset>
+        <legend>Binary output</legend>
+        <p>
+          <label><input type="radio" name="binFormat" value="fields" checked /> By bit field (sign, combination, exponent continuation, DPD coefficient)</label><br />
+          <label><input type="radio" name="binFormat" value="nibble" /> Every 4 bits (nibble)</label><br />
+          <label><input type="radio" name="binFormat" value="byte" /> Every 8 bits (byte)</label>
+        </p>
+        <pre id="binaryOut" class="out">-</pre>
+        <p id="binaryLegend" class="small"></p>
+      </fieldset>
+
+      <fieldset>
+        <legend>Hexadecimal output</legend>
+        <p>
+          <label><input type="radio" name="hexFormat" value="plain" checked /> One continuous string</label><br />
+          <label><input type="radio" name="hexFormat" value="2" /> Space every 2 hex digits</label><br />
+          <label><input type="radio" name="hexFormat" value="4" /> Space every 4 hex digits</label>
+        </p>
+        <pre id="hexOut" class="out">-</pre>
+      </fieldset>
+
+      <fieldset>
+        <legend>Breakdown</legend>
+        <table id="breakdown">
+          <tbody></tbody>
+        </table>
+      </fieldset>
+    </section>
+
+    <hr />
+
+    <!-- 
+         PART 2, NOT BUILT YET
+
+         whoever takes this part, the markup goes right here, copy the pattern
+         from part 1 above, a fieldset for the inputs then a fieldset per
+         output with the radio buttons for the formatting on top
+
+         what the spec asks for:
+           input a) a number in decimal or binary format, so a radio to pick
+                    which one it is, same idea as the input mode radio in part 1
+           input b) how many digits to round to, just a number box
+           output c) the result of ALL FOUR methods at once, chopping, round up,
+                    round down, round to nearest ties to even, so 4 rows
+
+         sir wants the same readability options maybe as part 1 so give the output the
+         binary grouping radios and the hex grouping radios too, the functions
+         for that are already written in view.js (groupBits and groupHex) so you
+         dont have to redo them just call them
+
+         the actual math goes in src/model/rounding.js not in here
+          -->
+    <section id="part2">
+      <h2>2. Demonstrate rounding methods</h2>
+      <p><em>Not built yet. See the TODO block in <code>src/model/rounding.js</code>.</em></p>
+    </section>
+
+    <hr />
+
+    <!-- 
+         PART 3, NOT BUILT YET
+
+         this is the subtraction and division one, markup goes here
+
+         what the spec asks for:
+           input a) two operands, each one can be typed as a decimal OR as an
+                    IEEE hex string like 22500220, so each operand box needs its
+                    own little radio to say which kind it is
+           input b) pick the operation, subtraction or division, radio again
+           output c) step by step solution plus the final answer in decimal,
+                    binary with spacing, and hex, and it has to handle the
+                    special cases like inf minus inf and divide by zero
+
+         the step by step part is the one that eats the most time so start early,
+         it is not enough to print the answer, sir may wants to see the alignment of
+         the exponents and the digit by digit work
+
+         the math goes in src/model/arithmetic.js
+          -->
+    <section id="part3">
+      <h2>3. Arithmetic operations (subtraction and division)</h2>
+      <p><em>Not built yet. See the TODO block in <code>src/model/arithmetic.js</code>.</em></p>
+    </section>
+
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
