@@ -1,7 +1,6 @@
 /*
   
   MODEL - PART 2, DEMONSTRATE ROUNDING METHODS      *** NOT BUILT YET ***
-  
 
   this file is empty on purpose, part 1 is done and this is the next one, i left
   the function names already written below so please dont rename them, the
@@ -90,7 +89,7 @@
   
 */
 
-// import { parseInput, encodeFinite, decodeBits } from './decimal32.js';
+import { parseInput, decodeBits, hexToBits, toNumberString } from './decimal32.js';
 
 export const ROUNDING_METHODS = ['chop', 'up', 'down', 'tiesToEven'];
 
@@ -100,7 +99,55 @@ export const ROUNDING_METHODS = ['chop', 'up', 'down', 'tiesToEven'];
  * @returns {object} something like { ok, results: { chop, up, down, tiesToEven } }
  */
 export function roundAll(input) {
-  throw new Error('Part 2 is not implemented yet, see the TODO block in src/model/rounding.js');
+   const keep = input.keep;
+
+  let sign, digits, q, special;
+
+  if (input.format === 'binary') {
+    const bits = input.bits || (input.hex ? hexToBits(input.hex) : null);
+    if (!bits) {
+      return { ok: false, error: 'Give either 32 bits or 8 hex characters for the binary input.' };
+    }
+    if (bits.length !== 32 || /[^01]/.test(bits)) {
+      return { ok: false, error: 'Binary input has to be exactly 32 bits, only 0s and 1s.' };
+    }
+    const decoded = decodeBits(bits);
+    sign = decoded.sign;
+    special = decoded.special;
+    digits = decoded.digits;
+    q = decoded.q;
+  } else {
+    const parsed = parseInput(input);
+    if (!parsed.ok) return parsed;
+    sign = parsed.sign;
+    special = parsed.special;
+    digits = parsed.digits;
+    q = parsed.q;
+  }
+
+  // rounding doesn't mean anything for infinity / NaN, they just pass through
+  // unchanged on all four methods, this covers the "including special cases"
+  // requirement from the general spec
+  if (special) {
+    const label =
+      (sign ? '-' : '') + (special === 'infinity' ? 'Infinity' : special === 'snan' ? 'sNaN' : 'NaN');
+    const results = {};
+    for (const method of ROUNDING_METHODS) {
+      results[method] = { ok: true, special, sign, value: label };
+    }
+    return { ok: true, special, sign, digits: null, q: null, keep, results };
+  }
+
+  if (!Number.isInteger(keep) || keep < 1) {
+    return { ok: false, error: 'Target number of digits has to be a whole number of at least 1.' };
+  }
+
+  const results = {};
+  for (const method of ROUNDING_METHODS) {
+    results[method] = roundOnce(digits, sign, q, keep, method);
+  }
+
+  return { ok: true, special: null, sign, digits, q, keep, results };
 }
 
 /**
@@ -112,5 +159,70 @@ export function roundAll(input) {
  * @param {string} method    one of ROUNDING_METHODS
  */
 export function roundOnce(digits, sign, q, keep, method) {
-  throw new Error('Part 2 is not implemented yet, see the TODO block in src/model/rounding.js');
+    if (!ROUNDING_METHODS.includes(method)) {
+    return { ok: false, error: `Unknown rounding method "${method}".` };
+  }
+
+  if (!Number.isInteger(keep) || keep < 1) {
+    return { ok: false, error: 'Target number of digits has to be a whole number of at least 1.' };
+  }
+
+  // strip leading zeros, they don't change the integer value so they don't
+  // change the exponent math and they're just padding
+  let d = digits.replace(/^0+/, '');
+  if (d === '') {
+    d = '0';
+  }
+
+  // nothing to round if it's zero, or if we already have <= keep digits
+  if (d === '0' || d.length <= keep) {
+    return { ok: true, sign, digits: d, q, value: toNumberString(sign, d, q) };
+  }
+
+  const kept = d.slice(0, keep);
+  const thrown = d.slice(keep);
+  let qOut = q + thrown.length; // we dropped thrown.length digits off the right
+
+  const thrownIsZero = /^0+$/.test(thrown);
+  let addOne = false;
+
+  if (!thrownIsZero) {
+    if (method === 'chop') {
+      addOne = false;
+    } else if (method === 'up') {
+      // toward +infinity: only makes positive numbers bigger
+      addOne = sign === 0;
+    } else if (method === 'down') {
+      // toward -infinity: only makes negative numbers more negative
+      addOne = sign === 1;
+    } else {
+      // tiesToEven
+      const half = '5' + '0'.repeat(thrown.length - 1);
+      const thrownBig = BigInt(thrown);
+      const halfBig = BigInt(half);
+      if (thrownBig > halfBig) {
+        addOne = true;
+      } else if (thrownBig < halfBig) {
+        addOne = false;
+      } else {
+        // exactly half, tie goes to whichever choice leaves an even digit
+        const lastKeptDigit = Number(kept[kept.length - 1]);
+        addOne = lastKeptDigit % 2 === 1;
+      }
+    }
+  }
+
+  let finalDigits = kept;
+  if (addOne) {
+    const bumped = (BigInt(kept) + 1n).toString();
+    const extra = bumped.length - keep; // 999 -> 1000 case, extra === 1
+    if (extra > 0) {
+      finalDigits = bumped.slice(0, keep); // drop the trailing zero(s) the carry added
+      qOut += extra; // and push the exponent up
+    } else {
+      finalDigits = bumped;
+    }
+  }
+
+  return { ok: true, sign, digits: finalDigits, q: qOut, value: toNumberString(sign, finalDigits, qOut) };
 }
