@@ -16,21 +16,27 @@ npm run check    # sanity checks on the encoder
 
 ## What works so far
 
-Part 1, convert decimal to decimal32. Parts 2 and 3 are stubbed out with TODO
+Part 1, convert decimal to decimal32. 
+
+Parts 2 and 3 are stubbed out with TODO
 blocks inside `src/model/rounding.js` and `src/model/arithmetic.js`.
+
+Part 3, division operation.
 
 ## How the code is laid out (MVC)
 
 ```
-index.html                     markup only
-src/main.js                    boots the app
-src/model/dpd.js               3 decimal digits <-> 10 bit declet
-src/model/decimal32.js         parsing, range checking, encode, decode
-src/model/rounding.js          PART 2, not built yet
-src/model/arithmetic.js        PART 3, not built yet
-src/view/view.js               the only file that touches the DOM
-src/controller/controller.js   connects the view to the model
-test/check.mjs                 encoder checks
+index.html                              markup only
+src/main.js                             boots the app
+src/model/dpd.js                        3 decimal digits <-> 10 bit declet
+src/model/decimal32.js                  parsing, range checking, encode, decode
+src/model/rounding.js                   PART 2, not built yet
+src/model/arithmetic.js                 PART 3, division operation
+src/view/view.js                        file that touches the DOM
+src/view/arithmeticView.js              arithmetic view file to touch the DOM
+src/controller/controller.js            connects the view to the model
+src/controller/arithmeticController.js  connects the arithmetic view to the model
+test/check.mjs                          encoder checks
 ```
 
 Model never touches the DOM, view never does math, controller is the middleman.
@@ -67,7 +73,12 @@ Error cases to show: too many significant digits (12345678), overflow
 Also worth showing that 420 and 4200 x 10^-1 are the same value but different
 bit patterns, that is the cohort thing and it is normal for decimal formats.
 
+Part 3: Division
+
+WIP
 
 ## AI Declaration
 
 Sanidad: I used ai to help research on what I could use to start the development of the project, and I had gone to the conclusion of going to vite. I was looking for something light and not really dependent on many things but it comes at the cost of not really having much support to my knowledge since I do not know the scale of this website.
+
+Roa: I used AI to help in formulating test cases as well as debugging the code specifically for the division operation. I opted to use gemini for that.

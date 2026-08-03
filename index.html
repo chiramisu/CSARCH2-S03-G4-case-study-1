@@ -150,7 +150,71 @@
           -->
     <section id="part3">
       <h2>3. Arithmetic operations (subtraction and division)</h2>
-      <p><em>Not built yet. See the TODO block in <code>src/model/arithmetic.js</code>.</em></p>
+
+      <fieldset>
+        <legend>Input</legend>
+
+        <p>
+          <strong>Operand A:</strong><br />
+          <label><input type="radio" name="opAMode" value="decimal" checked /> Decimal</label>
+          <label><input type="radio" name="opAMode" value="hex" /> Hexadecimal (8 chars)</label>
+          <br />
+          <input id="opAInput" type="text" size="35" placeholder="e.g. 420 or 22500220" />
+        </p>
+
+        <p>
+          <strong>Operand B:</strong><br />
+          <label><input type="radio" name="opBMode" value="decimal" checked /> Decimal</label>
+          <label><input type="radio" name="opBMode" value="hex" /> Hexadecimal (8 chars)</label>
+          <br />
+          <input id="opBInput" type="text" size="35" placeholder="e.g. 1.5 or 22500220" />
+        </p>
+
+        <p>
+          <strong>Operation:</strong><br />
+          <label><input type="radio" name="operation" value="subtract" checked /> Subtraction (A - B)</label>
+          <label><input type="radio" name="operation" value="divide" /> Division (A ÷ B)</label>
+        </p>
+
+        <p>
+          <button id="calcBtn" type="button">Calculate</button>
+          <button id="calcClearBtn" type="button">Clear</button>
+        </p>
+      </fieldset>
+
+      <p id="calcErrorBox" role="alert" hidden></p>
+
+      <fieldset>
+        <legend>Output Formatting</legend>
+        <p>
+          <strong>Binary format:</strong>
+          <label><input type="radio" name="calcBinFormat" value="fields" checked /> Field Breakdown </label>
+          <label><input type="radio" name="calcBinFormat" value="nibble" /> Nibbles </label>
+          <label><input type="radio" name="calcBinFormat" value="byte" /> Bytes </label>
+        </p>
+        <p>
+          <strong>Hex format:</strong>
+          <label><input type="radio" name="calcHexFormat" value="plain" checked /> No Spaces </label>
+          <label><input type="radio" name="calcHexFormat" value="2" /> 1 Byte </label>
+          <label><input type="radio" name="calcHexFormat" value="4" /> 2 Bytes </label>
+        </p>
+      </fieldset>
+
+      <fieldset>
+        <legend>Final Result</legend>
+        <table id="calcResultTable">
+          <tbody>
+            <tr><td><strong>Value (Decimal)</strong></td><td id="resDecimal" class="out">-</td></tr>
+            <tr><td><strong>Binary</strong></td><td><pre id="resBinary" class="out">-</pre></td></tr>
+            <tr><td><strong>Hexadecimal</strong></td><td><pre id="resHex" class="out">-</pre></td></tr>
+          </tbody>
+        </table>
+      </fieldset>
+
+      <fieldset>
+        <legend>Step-by-Step Solution</legend>
+        <ol id="calcSteps"></ol>
+      </fieldset>
     </section>
 
     <script type="module" src="/src/main.js"></script>

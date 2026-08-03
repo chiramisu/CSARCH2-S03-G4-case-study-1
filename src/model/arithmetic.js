@@ -494,6 +494,131 @@ function runSubtract(a, b) {
   return { steps, result: finalResult };
 }
 
+// division
+/**
+ * runs the actual division on two already-decoded, already-finite operands.
+ * Special cases like zero division are handled before this function is called.
+ * @returns {{steps: object[], result: object}}
+ */
+
+function runDivide(a, b) {
+  const steps = [];
+
+  // Exponent starts as A's exponent minus B's exponent
+  let currentQ = a.q - b.q;
+  const sign = a.sign ^ b.sign;
+
+  steps.push({
+    label: 'Calculate initial exponent',
+    detail: `Exponent for the answer starts as A's exponent minus B's exponent: ${a.q} - ${b.q} = ${currentQ}. Result sign is ${sign} (XOR of operand signs).`,
+  });
+
+  let magA = BigInt(stripLeadingZeros(a.digits));
+  const magB = BigInt(stripLeadingZeros(b.digits));
+
+  let generatedExtra = 0;
+
+  // Make sure magA is large enough to get a non-zero quotient
+  while (magA < magB) {
+    magA *= 10n;
+    currentQ -= 1;
+    generatedExtra++;
+  }
+
+  // Keep shifting left (generating decimal places) until we have enough precision 
+  // to round safely (PRECISION + 2 is plenty), or until it comes out perfectly even
+  while ((magA / magB).toString().length < PRECISION + 2 && magA % magB !== 0n) {
+    magA *= 10n;
+    currentQ -= 1;
+    generatedExtra++;
+  }
+
+  const rawQuotient = magA / magB;
+  const remainder = magA % magB;
+  
+  let resultDigits = rawQuotient.toString();
+
+  // If there is still a remainder, append a 1 to signal that it didn't terminate. 
+  // This helps ties-to-even work properly without evaluating non-terminating decimals as exact ties.
+  if (remainder !== 0n) {
+    resultDigits += '1';
+    currentQ -= 1;
+  }
+
+  steps.push({
+    label: 'Long division',
+    detail: `Dividing magnitude ${stripLeadingZeros(a.digits)} by ${stripLeadingZeros(b.digits)}. Generated extra decimal places until we had enough digits for rounding (at least ${PRECISION + 2} digits) or the division terminated. Appended zeros to the numerator and subtracted from the exponent for each extra place.`,
+  });
+
+  steps.push({
+    label: 'Unrounded result',
+    detail: `Unrounded result: sign ${sign}, digits ${resultDigits}, exponent ${currentQ} (that's ${toNumberString(sign, resultDigits, currentQ)}).`,
+  });
+
+  // round back down to 7 digits using part 2, ties-to-even is decimal32's default rounding direction
+  const rounded = roundOnce(resultDigits, sign, currentQ, PRECISION, DEFAULT_ROUNDING_METHOD);
+  const droppedCount = resultDigits.length > PRECISION ? resultDigits.length - PRECISION : 0;
+
+  steps.push({
+    label: 'Round to 7 digits',
+    detail:
+      droppedCount > 0
+        ? `${resultDigits} has ${resultDigits.length} digits, decimal32 only keeps ${PRECISION}. Rounding with ties-to-even ` +
+          `(the IEEE 754 default): keep the leading ${PRECISION} digits (${resultDigits.slice(0, PRECISION)}) and weigh the ` +
+          `dropped ${droppedCount} digit(s) ("${resultDigits.slice(PRECISION)}") against exactly half to decide whether to ` +
+          `bump the last kept digit. Rounded: sign ${rounded.sign}, digits ${rounded.digits}, exponent ${rounded.q}.`
+        : `${resultDigits} already fits in ${PRECISION} digits, nothing gets thrown away.`,
+  });
+
+  // check the exponent still fits. if not, that's overflow or underflow
+  let finalDigits = rounded.digits;
+  let finalQ = rounded.q;
+  let overflow = false;
+  let underflow = false;
+  const rangeNotes = [];
+
+  if (finalQ > Q_MAX) {
+    overflow = true;
+    rangeNotes.push(
+      `Overflow: after rounding the exponent needed is ${finalQ}, decimal32's max is ${Q_MAX}. Result becomes signed infinity.`
+    );
+  } else if (finalQ < Q_MIN) {
+    underflow = true;
+    rangeNotes.push(
+      `Underflow: after rounding the exponent needed is ${finalQ}, decimal32's min is ${Q_MIN}. Result becomes signed zero.`
+    );
+  }
+
+  let finalResult;
+  if (overflow) {
+    finalResult = specialResult(rounded.sign, 'infinity');
+  } else if (underflow) {
+    finalResult = zeroResult(rounded.sign);
+  } else if (finalQ !== rounded.q) {
+    finalResult = encodeFiniteResult(rounded.sign, finalDigits, finalQ);
+  } else {
+    finalResult = {
+      special: null,
+      sign: rounded.sign,
+      digits: finalDigits,
+      q: finalQ,
+      value: rounded.value,
+      bits: rounded.bits,
+      hex: rounded.hex,
+    };
+  }
+
+  steps.push({
+    label: 'Re-encode final result',
+    detail:
+      rangeNotes.length > 0
+        ? `${rangeNotes.join(' ')} Final: ${finalResult.value}${finalResult.hex ? `, hex ${finalResult.hex}.` : '.'}`
+        : `Final: ${finalResult.value}, binary ${finalResult.bits}, hex ${finalResult.hex}.`,
+  });
+
+  return { steps, result: finalResult };
+}
+
 // the one function the (future) arithmetic controller actually calls
 
 /**
@@ -527,9 +652,8 @@ export function operate(operandA, operandB, operation) {
     return { ok: true, steps: [...steps, ...mathSteps], result };
   }
 
-  // TODO division (decodeOperand, specialResult, zeroResult and encodeFiniteResult above can be reused, checkSpecialCases already covers
-  // every division special case too what's missing is just the long-division loop + rounding + range check
-  throw new Error(
-    'Division is not implemented yet - only subtract is done in src/model/arithmetic.js, see the TODO in operate().'
-  );
+  if (operation === 'divide') {
+    const { steps: mathSteps, result } = runDivide(a, b);
+    return { ok: true, steps: [...steps, ...mathSteps], result };
+  }
 }
