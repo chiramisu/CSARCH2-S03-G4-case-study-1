@@ -101,7 +101,7 @@
     <hr />
 
     <!-- 
-         PART 2, NOT BUILT YET
+         PART 2 - DONE
 
          whoever takes this part, the markup goes right here, copy the pattern
          from part 1 above, a fieldset for the inputs then a fieldset per
@@ -123,10 +123,102 @@
           -->
     <section id="part2">
       <h2>2. Demonstrate rounding methods</h2>
-      <p><em>Not built yet. See the TODO block in <code>src/model/rounding.js</code>.</em></p>
+
+      <fieldset>
+        <legend>Input</legend>
+
+        <p>
+          <label>
+            <input type="radio" name="roundFormat" value="decimal" checked />
+            Decimal
+          </label>
+          <label>
+            <input type="radio" name="roundFormat" value="binary" />
+            Binary / hex (decimal32 bits)
+          </label>
+        </p>
+
+        <div id="roundDecimalFields">
+          <label for="roundDecimalInput">Decimal number</label>
+          <input id="roundDecimalInput" type="text" size="30" placeholder="1.2345 or -1.2345" />
+        </div>
+
+        <div id="roundBinaryFields" hidden>
+          <p>
+            <label>
+              <input type="radio" name="roundBinarySubFormat" value="bits" checked />
+              32-bit binary string
+            </label>
+            <label>
+              <input type="radio" name="roundBinarySubFormat" value="hex" />
+              8-character hex
+            </label>
+          </p>
+
+          <div id="roundBitsFields">
+            <label for="roundBitsInput">Bits</label>
+            <input id="roundBitsInput" type="text" size="40" placeholder="32 characters of 0/1" />
+          </div>
+
+          <div id="roundHexFields" hidden>
+            <label for="roundHexInput">Hex</label>
+            <input id="roundHexInput" type="text" size="12" placeholder="22500220" />
+          </div>
+        </div>
+
+        <p>
+          <label for="roundKeepInput">Digits to keep</label>
+          <input id="roundKeepInput" type="text" size="4" placeholder="7" />
+        </p>
+
+        <p>
+          You can also type <code>Infinity</code>, <code>-Infinity</code>, <code>NaN</code> or
+          <code>sNaN</code> in the decimal box to see the special cases pass through unchanged.
+        </p>
+
+        <p>
+          <button id="roundBtn" type="button">Round</button>
+          <button id="roundClearBtn" type="button">Clear</button>
+        </p>
+      </fieldset>
+
+      <p id="roundErrorBox" role="alert" hidden></p>
+      <p id="roundNoteBox" hidden></p>
+
+      <fieldset>
+        <legend>Output Formatting</legend>
+        <p>
+          <strong>Binary format:</strong>
+          <label><input type="radio" name="roundBinFormat" value="fields" checked /> Field Breakdown </label>
+          <label><input type="radio" name="roundBinFormat" value="nibble" /> Nibbles </label>
+          <label><input type="radio" name="roundBinFormat" value="byte" /> Bytes </label>
+        </p>
+        <p>
+          <strong>Hex format:</strong>
+          <label><input type="radio" name="roundHexFormat" value="plain" checked /> No Spaces </label>
+          <label><input type="radio" name="roundHexFormat" value="2" /> 1 Byte </label>
+          <label><input type="radio" name="roundHexFormat" value="4" /> 2 Bytes </label>
+        </p>
+      </fieldset>
+
+      <fieldset>
+        <legend>Results (all four methods)</legend>
+        <table id="roundResultTable">
+          <thead>
+            <tr>
+              <th>Method</th>
+              <th>Decimal</th>
+              <th>Binary</th>
+              <th>Hex</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </fieldset>
     </section>
 
     <hr />
+
 
     <!-- 
          PART 3, NOT BUILT YET
