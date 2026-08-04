@@ -99,27 +99,561 @@
   exported from decimal32.js, and validate that the user typed exactly 8 hex
   characters before you trust it
 
+  - IMPLEMENTED SUBTRACTION PART NOTES
+
+      Subtraction: operand decoding
+      (decimal AND hex), exponent alignment, signed-magnitude subtraction with
+      BigInt, x - x -> +0, rounding via part 2's roundOnce (ties-to-even, the
+      IEEE 754 default), and an overflow/underflow check on the final exponent.
+
+      operate() dispatches: special cases first, then subtract if that's the
+      operation. 
   
 */
 
-// import { decodeBits, hexToBits, encodeFinite } from './decimal32.js';
-// import { roundAll } from './rounding.js';
+import {
+  parseInput,
+  decodeBits,
+  hexToBits,
+  bitsToHex,
+  toNumberString,
+  encodeFinite,
+  encodeSpecial,
+  convert,
+  PRECISION,
+  Q_MIN,
+  Q_MAX,
+} from './decimal32.js';
+import { roundOnce } from './rounding.js';
 
 export const OPERATIONS = ['subtract', 'divide'];
 
+// the rounding method decimal32 arithmetic defaults to, ties-to-even
+const DEFAULT_ROUNDING_METHOD = 'tiesToEven';
+
+// operand decoding 
 /**
- * TODO runs the operation and gives back the answer plus every step
- * @returns {object} something like { ok, steps: [], result: {...} }
+ * Turns whatever the user typed for one operand into a canonical
+ * { sign, special, digits, q } shape, the same shape decodeBits/parseInput
+ * already use elsewhere in the project, plus bits/hex/value for display
+ *
+ * @param {object} operand
+ * @param {'decimal'|'hex'} operand.format
+ * @param {string} label   'A' or 'B' (only used to make error messages readable)
+ * @returns {{ok:true, sign:number, special:string|null, digits:string|null,
+ *             q:number|null, bits:string, hex:string, value:string}
+ *          | {ok:false, error:string}}
  */
-export function operate(operandA, operandB, operation) {
-  throw new Error('Part 3 is not implemented yet, see the TODO block in src/model/arithmetic.js');
+export function decodeOperand(operand, label) {
+  if (!operand || typeof operand !== 'object') {
+    return { ok: false, error: `Operand ${label} is missing.` };
+  }
+
+  if (operand.format === 'hex') {
+    const raw = (operand.hex || '').trim();
+    const hex = raw.toUpperCase();
+    if (!/^[0-9A-F]{8}$/.test(hex)) {
+      return {
+        ok: false,
+        error: `Operand ${label} needs exactly 8 hex characters (0-9, A-F), got "${raw}".`,
+      };
+    }
+    const bits = hexToBits(hex);
+    const decoded = decodeBits(bits);
+    const value = decoded.special
+      ? (decoded.sign ? '-' : '') +
+        (decoded.special === 'infinity' ? 'Infinity' : decoded.special === 'snan' ? 'sNaN' : 'NaN')
+      : toNumberString(decoded.sign, decoded.digits, decoded.q);
+
+    return {
+      ok: true,
+      sign: decoded.sign,
+      special: decoded.special,
+      digits: decoded.special ? null : decoded.digits,
+      q: decoded.special ? null : decoded.q,
+      bits,
+      hex,
+      value,
+    };
+  }
+
+  // decimal format
+  const converted = convert(operand);
+  if (!converted.ok) {
+    return { ok: false, error: `Operand ${label}: ${converted.error}` };
+  }
+
+  return {
+    ok: true,
+    sign: converted.sign,
+    special: converted.special,
+    digits: converted.special ? null : converted.coefficient,
+    q: converted.special ? null : converted.q,
+    bits: converted.bits,
+    hex: converted.hex,
+    value: converted.value,
+  };
+}
+
+
+/** @returns {{special, sign, digits:null, q:null, value, bits, hex}} */
+export function specialResult(sign, special) {
+  const fields = encodeSpecial(sign, special);
+  const bits = fields.sign + fields.combination + fields.exponentContinuation + fields.coefficientContinuation;
+  return {
+    special,
+    sign,
+    digits: null,
+    q: null,
+    value:
+      (sign ? '-' : '') + (special === 'infinity' ? 'Infinity' : special === 'snan' ? 'sNaN' : 'NaN'),
+    bits,
+    hex: bitsToHex(bits),
+  };
+}
+
+// reencodes a plain finite result
+export function encodeFiniteResult(sign, digits, q) {
+  const padded = digits.padStart(PRECISION, '0');
+  const fields = encodeFinite(sign, padded, q);
+  const bits = fields.sign + fields.combination + fields.exponentContinuation + fields.coefficientContinuation;
+  return {
+    special: null,
+    sign,
+    digits: padded,
+    q,
+    value: toNumberString(sign, padded, q),
+    bits,
+    hex: bitsToHex(bits),
+  };
+}
+
+/** @returns a signed zero result, q pinned to 0 since zero has no significant digits anyway */
+export function zeroResult(sign) {
+  return encodeFiniteResult(sign, '0'.repeat(PRECISION), 0);
+}
+
+// special cases 
+/**
+ * checks the inf/NaN/zero combinations before any real math happens
+ *
+ * this takes the raw operands (same ones passed to operate()), it
+ * decodes them itself. if decoding fails this just returns null instead of
+ * surfacing the error. operate() does its own decode right after and that's
+ * where a bad input error actually gets reported, a malformed operand isn't
+ * really a "special case" in the inf/NaN/zero sense
+ *
+ * @returns {{result:object, detail:string}|null}
+ */
+export function checkSpecialCases(operandA, operandB, operation) {
+  const a = decodeOperand(operandA, 'A');
+  const b = decodeOperand(operandB, 'B');
+  if (!a.ok || !b.ok) return null;
+
+  if (a.special === 'nan' || a.special === 'snan' || b.special === 'nan' || b.special === 'snan') {
+    const sawSignaling = a.special === 'snan' || b.special === 'snan';
+    return {
+      result: specialResult(0, 'nan'),
+      detail: sawSignaling
+        ? 'One operand is a signaling NaN (sNaN), which raises the invalid-operation flag; the result is quiet NaN.'
+        : 'One operand is NaN, so the result is NaN.',
+    };
+  }
+
+  const aIsInf = a.special === 'infinity';
+  const bIsInf = b.special === 'infinity';
+  const aIsZero = !a.special && /^0*$/.test(a.digits);
+  const bIsZero = !b.special && /^0*$/.test(b.digits);
+
+  if (operation === 'subtract') {
+    if (aIsInf && bIsInf) {
+      // subtracting is adding the negation. same-signed infinities cancel to NaN, opposite signed infinities add up to a signed infinity
+      if (a.sign === b.sign) {
+        return {
+          result: specialResult(0, 'nan'),
+          detail: "Infinity minus an infinity of the same sign is NaN, they don't actually cancel out.",
+        };
+      }
+      return {
+        result: specialResult(a.sign, 'infinity'),
+        detail: 'Infinity minus an infinity of the opposite sign stays infinite; the sign carries over from operand A.',
+      };
+    }
+    if (aIsInf) {
+      return {
+        result: specialResult(a.sign, 'infinity'),
+        detail: 'Operand A is infinite, so the result is that same infinity no matter what B is.',
+      };
+    }
+    if (bIsInf) {
+      return {
+        result: specialResult(1 - b.sign, 'infinity'),
+        detail: 'Operand B is infinite; subtracting an infinity flips its sign onto the result.',
+      };
+    }
+    return null; // both finite. the real subtraction math handles it, including x - x = +0
+  }
+
+  if (operation === 'divide') {
+    const resultSign = a.sign ^ b.sign;
+    if (aIsInf && bIsInf) {
+      return { result: specialResult(0, 'nan'), detail: 'Infinity divided by infinity is NaN.' };
+    }
+    if (aIsZero && bIsZero) {
+      return { result: specialResult(0, 'nan'), detail: 'Zero divided by zero is NaN.' };
+    }
+    if (bIsZero) {
+      return {
+        result: specialResult(resultSign, 'infinity'),
+        detail: 'Dividing by zero gives infinity; the sign is the xor of the two operand signs.',
+      };
+    }
+    if (aIsZero) {
+      return { result: zeroResult(resultSign), detail: 'Zero divided by anything nonzero is zero.' };
+    }
+    if (aIsInf) {
+      return { result: specialResult(resultSign, 'infinity'), detail: 'Infinity divided by a finite number is still infinity.' };
+    }
+    if (bIsInf) {
+      return { result: zeroResult(resultSign), detail: 'A finite number divided by infinity is zero.' };
+    }
+    return null;
+  }
+
+  return null;
+}
+
+// step-by-step helpers
+function describeOperand(label, decoded) {
+  if (decoded.special) {
+    return {
+      label: `Decode operand ${label}`,
+      detail: `${label} = ${decoded.value} — sign ${decoded.sign}, this is a special value (${decoded.special}), not a plain coefficient/exponent pair.`,
+    };
+  }
+  return {
+    label: `Decode operand ${label}`,
+    detail: `${label} = ${decoded.value} → sign ${decoded.sign}, coefficient ${decoded.digits}, exponent ${decoded.q >= 0 ? '+' : ''}${decoded.q}.`,
+  };
+}
+
+function stripLeadingZeros(digits) {
+  const stripped = digits.replace(/^0+/, '');
+  return stripped === '' ? '0' : stripped;
 }
 
 /**
- * TODO handles the inf / NaN / zero combinations before we bother doing any
- * real math, call this first and if it returns something just use that
- * @returns {object|null} the special result, or null when both operands are normal
+ * shifts whichever operand has the bigger exponent left (appends zeros,
+ * lowers its exponent) until both land on the same exponent
  */
-export function checkSpecialCases(operandA, operandB, operation) {
-  throw new Error('Part 3 is not implemented yet, see the TODO block in src/model/arithmetic.js');
+function alignOperands(a, b) {
+  let digitsA = stripLeadingZeros(a.digits);
+  let digitsB = stripLeadingZeros(b.digits);
+  let qA = a.q;
+  let qB = b.q;
+
+  if (qA > qB) {
+    digitsA += '0'.repeat(qA - qB);
+    qA = qB;
+  } else if (qB > qA) {
+    digitsB += '0'.repeat(qB - qA);
+    qB = qA;
+  }
+
+  return { digitsA, digitsB, q: qA };
+}
+
+// subtraction 
+/**
+ * runs the actual subtraction on two already-decoded, already-finite
+ * operands (checkSpecialCases has to have already ruled out inf/NaN by the
+ * time this gets called)
+ * @returns {{steps: object[], result: object}}
+ */
+function runSubtract(a, b) {
+  const steps = [];
+
+  const { digitsA, digitsB, q } = alignOperands(a, b);
+
+  steps.push({
+    label: 'Align exponents',
+    detail:
+      a.q === b.q
+        ? `Both operands already share exponent ${q}, no shifting needed. A = ${digitsA}, B = ${digitsB}.`
+        : `Exponents differ (A is ${a.q}, B is ${b.q}), so whichever one has the bigger exponent gets shifted left ` +
+          `(zeros appended on the right, exponent lowered) until both land on ${q}. A becomes ${digitsA}, B becomes ${digitsB}.`,
+  });
+
+  // subtracting is adding the negation (flip B's sign)
+  const flippedBSign = 1 - b.sign;
+  const magA = BigInt(digitsA);
+  const magB = BigInt(digitsB);
+
+  let workingSign, workingMag, workDetail;
+  if (a.sign === flippedBSign) {
+    workingSign = a.sign;
+    workingMag = magA + magB;
+    workDetail =
+      `Subtracting B means flipping its sign first (B's sign was ${b.sign}, flipped to ${flippedBSign}), which matches A's sign, ` +
+      `so this becomes a plain addition: ${digitsA} + ${digitsB} = ${workingMag.toString()}.`;
+  } else if (magA >= magB) {
+    workingSign = a.sign;
+    workingMag = magA - magB;
+    workDetail =
+      `Subtracting B means flipping its sign first (B's sign was ${b.sign}, flipped to ${flippedBSign}), which differs from A's sign, ` +
+      `so subtract the smaller magnitude from the larger: ${digitsA} - ${digitsB} = ${workingMag.toString()}, sign follows A (the bigger magnitude).`;
+  } else {
+    workingSign = flippedBSign;
+    workingMag = magB - magA;
+    workDetail =
+      `Subtracting B means flipping its sign first (B's sign was ${b.sign}, flipped to ${flippedBSign}), which differs from A's sign, ` +
+      `so subtract the smaller magnitude from the larger: ${digitsB} - ${digitsA} = ${workingMag.toString()}, sign follows B (the bigger magnitude).`;
+  }
+
+  steps.push({ label: 'Raw subtraction', detail: workDetail });
+
+  let resultDigits = workingMag.toString();
+  let resultSign = workingSign;
+  const isZero = resultDigits === '0';
+  if (isZero) {
+    resultSign = 0; // x - x = +0, always positive zero in the default rounding mode
+  }
+
+  steps.push({
+    label: 'Unrounded result',
+    detail: isZero
+      ? 'The magnitudes cancelled out exactly, so the unrounded result is zero. In the default rounding mode that is always positive zero, no matter what the intermediate signs looked like.'
+      : `Unrounded result: sign ${resultSign}, digits ${resultDigits}, exponent ${q} (that's ${toNumberString(resultSign, resultDigits, q)}).`,
+  });
+
+  if (isZero) {
+    const zr = zeroResult(0);
+    steps.push({
+      label: 'Round and re-encode',
+      detail: `Zero doesn't need rounding, it's re-encoded directly as +0: bits ${zr.bits}, hex ${zr.hex}.`,
+    });
+    return { steps, result: zr };
+  }
+
+  // round back down to 7 digits using part 2, ties-to-even is decimal32's default rounding direction
+  const rounded = roundOnce(resultDigits, resultSign, q, PRECISION, DEFAULT_ROUNDING_METHOD);
+  const droppedCount = resultDigits.length > PRECISION ? resultDigits.length - PRECISION : 0;
+
+  steps.push({
+    label: 'Round to 7 digits',
+    detail:
+      droppedCount > 0
+        ? `${resultDigits} has ${resultDigits.length} digits, decimal32 only keeps ${PRECISION}. Rounding with ties-to-even ` +
+          `(the IEEE 754 default): keep the leading ${PRECISION} digits (${resultDigits.slice(0, PRECISION)}) and weigh the ` +
+          `dropped ${droppedCount} digit(s) ("${resultDigits.slice(PRECISION)}") against exactly half to decide whether to ` +
+          `bump the last kept digit. Rounded: sign ${rounded.sign}, digits ${rounded.digits}, exponent ${rounded.q}.`
+        : `${resultDigits} already fits in ${PRECISION} digits, nothing gets thrown away.`,
+  });
+
+  // check the exponent still fits. if not, that's overflow or underflow
+  let finalDigits = rounded.digits;
+  let finalQ = rounded.q;
+  let overflow = false;
+  let underflow = false;
+  const rangeNotes = [];
+
+  if (finalQ > Q_MAX) {
+    overflow = true;
+    rangeNotes.push(
+      `Overflow: after rounding the exponent needed is ${finalQ}, decimal32's max is ${Q_MAX}. Result becomes signed infinity.`
+    );
+  }
+
+  let finalResult;
+  if (overflow) {
+    finalResult = specialResult(rounded.sign, 'infinity');
+  } else if (underflow) {
+    finalResult = zeroResult(rounded.sign);
+  } else if (finalQ !== rounded.q) {
+    finalResult = encodeFiniteResult(rounded.sign, finalDigits, finalQ);
+  } else {
+    finalResult = {
+      special: null,
+      sign: rounded.sign,
+      digits: finalDigits,
+      q: finalQ,
+      value: rounded.value,
+      bits: rounded.bits,
+      hex: rounded.hex,
+    };
+  }
+
+  steps.push({
+    label: 'Re-encode final result',
+    detail:
+      rangeNotes.length > 0
+        ? `${rangeNotes.join(' ')} Final: ${finalResult.value}${finalResult.hex ? `, hex ${finalResult.hex}.` : '.'}`
+        : `Final: ${finalResult.value}, binary ${finalResult.bits}, hex ${finalResult.hex}.`,
+  });
+
+  return { steps, result: finalResult };
+}
+
+// division
+/**
+ * runs the actual division on two already-decoded, already-finite operands.
+ * Special cases like zero division are handled before this function is called.
+ * @returns {{steps: object[], result: object}}
+ */
+
+function runDivide(a, b) {
+  const steps = [];
+
+  // Exponent starts as A's exponent minus B's exponent
+  let currentQ = a.q - b.q;
+  const sign = a.sign ^ b.sign;
+
+  steps.push({
+    label: 'Calculate initial exponent',
+    detail: `Exponent for the answer starts as A's exponent minus B's exponent: ${a.q} - ${b.q} = ${currentQ}. Result sign is ${sign} (XOR of operand signs).`,
+  });
+
+  let magA = BigInt(stripLeadingZeros(a.digits));
+  const magB = BigInt(stripLeadingZeros(b.digits));
+
+  let generatedExtra = 0;
+
+  // Make sure magA is large enough to get a non-zero quotient
+  while (magA < magB) {
+    magA *= 10n;
+    currentQ -= 1;
+    generatedExtra++;
+  }
+
+  // Keep shifting left (generating decimal places) until we have enough precision 
+  // to round safely (PRECISION + 2 is plenty), or until it comes out perfectly even
+  while ((magA / magB).toString().length < PRECISION + 2 && magA % magB !== 0n) {
+    magA *= 10n;
+    currentQ -= 1;
+    generatedExtra++;
+  }
+
+  const rawQuotient = magA / magB;
+  const remainder = magA % magB;
+  
+  let resultDigits = rawQuotient.toString();
+
+  // If there is still a remainder, append a 1 to signal that it didn't terminate. 
+  // This helps ties-to-even work properly without evaluating non-terminating decimals as exact ties.
+  if (remainder !== 0n) {
+    resultDigits += '1';
+    currentQ -= 1;
+  }
+
+  steps.push({
+    label: 'Long division',
+    detail: `Dividing magnitude ${stripLeadingZeros(a.digits)} by ${stripLeadingZeros(b.digits)}. Generated extra decimal places until we had enough digits for rounding (at least ${PRECISION + 2} digits) or the division terminated. Appended zeros to the numerator and subtracted from the exponent for each extra place.`,
+  });
+
+  steps.push({
+    label: 'Unrounded result',
+    detail: `Unrounded result: sign ${sign}, digits ${resultDigits}, exponent ${currentQ} (that's ${toNumberString(sign, resultDigits, currentQ)}).`,
+  });
+
+  // round back down to 7 digits using part 2, ties-to-even is decimal32's default rounding direction
+  const rounded = roundOnce(resultDigits, sign, currentQ, PRECISION, DEFAULT_ROUNDING_METHOD);
+  const droppedCount = resultDigits.length > PRECISION ? resultDigits.length - PRECISION : 0;
+
+  steps.push({
+    label: 'Round to 7 digits',
+    detail:
+      droppedCount > 0
+        ? `${resultDigits} has ${resultDigits.length} digits, decimal32 only keeps ${PRECISION}. Rounding with ties-to-even ` +
+          `(the IEEE 754 default): keep the leading ${PRECISION} digits (${resultDigits.slice(0, PRECISION)}) and weigh the ` +
+          `dropped ${droppedCount} digit(s) ("${resultDigits.slice(PRECISION)}") against exactly half to decide whether to ` +
+          `bump the last kept digit. Rounded: sign ${rounded.sign}, digits ${rounded.digits}, exponent ${rounded.q}.`
+        : `${resultDigits} already fits in ${PRECISION} digits, nothing gets thrown away.`,
+  });
+
+  // check the exponent still fits. if not, that's overflow or underflow
+  let finalDigits = rounded.digits;
+  let finalQ = rounded.q;
+  let overflow = false;
+  let underflow = false;
+  const rangeNotes = [];
+
+  if (finalQ > Q_MAX) {
+    overflow = true;
+    rangeNotes.push(
+      `Overflow: after rounding the exponent needed is ${finalQ}, decimal32's max is ${Q_MAX}. Result becomes signed infinity.`
+    );
+  } else if (finalQ < Q_MIN) {
+    underflow = true;
+    rangeNotes.push(
+      `Underflow: after rounding the exponent needed is ${finalQ}, decimal32's min is ${Q_MIN}. Result becomes signed zero.`
+    );
+  }
+
+  let finalResult;
+  if (overflow) {
+    finalResult = specialResult(rounded.sign, 'infinity');
+  } else if (underflow) {
+    finalResult = zeroResult(rounded.sign);
+  } else if (finalQ !== rounded.q) {
+    finalResult = encodeFiniteResult(rounded.sign, finalDigits, finalQ);
+  } else {
+    finalResult = {
+      special: null,
+      sign: rounded.sign,
+      digits: finalDigits,
+      q: finalQ,
+      value: rounded.value,
+      bits: rounded.bits,
+      hex: rounded.hex,
+    };
+  }
+
+  steps.push({
+    label: 'Re-encode final result',
+    detail:
+      rangeNotes.length > 0
+        ? `${rangeNotes.join(' ')} Final: ${finalResult.value}${finalResult.hex ? `, hex ${finalResult.hex}.` : '.'}`
+        : `Final: ${finalResult.value}, binary ${finalResult.bits}, hex ${finalResult.hex}.`,
+  });
+
+  return { steps, result: finalResult };
+}
+
+// the one function the (future) arithmetic controller actually calls
+
+/**
+ * runs the operation and gives back the answer plus every step.
+ *
+ * @param {object} operandA  same shape decodeOperand takes
+ * @param {object} operandB 
+ * @param {'subtract'|'divide'} operation
+ * @returns {{ok:true, steps:object[], result:object} | {ok:false, error:string}}
+ */
+export function operate(operandA, operandB, operation) {
+  if (!OPERATIONS.includes(operation)) {
+    return { ok: false, error: `Unknown operation "${operation}", expected one of: ${OPERATIONS.join(', ')}.` };
+  }
+
+  const a = decodeOperand(operandA, 'A');
+  if (!a.ok) return { ok: false, error: a.error };
+  const b = decodeOperand(operandB, 'B');
+  if (!b.ok) return { ok: false, error: b.error };
+
+  const steps = [describeOperand('A', a), describeOperand('B', b)];
+
+  const special = checkSpecialCases(operandA, operandB, operation);
+  if (special) {
+    steps.push({ label: 'Special case', detail: special.detail });
+    return { ok: true, steps, result: special.result };
+  }
+
+  if (operation === 'subtract') {
+    const { steps: mathSteps, result } = runSubtract(a, b);
+    return { ok: true, steps: [...steps, ...mathSteps], result };
+  }
+
+  if (operation === 'divide') {
+    const { steps: mathSteps, result } = runDivide(a, b);
+    return { ok: true, steps: [...steps, ...mathSteps], result };
+  }
 }
