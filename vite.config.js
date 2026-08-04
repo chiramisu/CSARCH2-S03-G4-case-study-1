@@ -9,5 +9,5 @@
 */
 
 export default {
-  base: './',
+  base: '/CSARCH2-S03-G4-case-study-1/',
 };
