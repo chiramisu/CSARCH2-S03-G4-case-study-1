@@ -3,7 +3,7 @@
 Group 4, S03. Web simulation of IEEE 754 decimal32 (decimal single precision,
 densely packed decimal encoding).
 
-- **Live site:** _TODO paste the deployment link here, and also put it in the About / Website box of this repo_
+- **Live site:** https://chiramisu.github.io/CSARCH2-S03-G4-case-study-1/
 - **Video walkthrough:** _TODO paste the YouTube link here_
 
 ## Status
