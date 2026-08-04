@@ -3,6 +3,19 @@
 Group 4, S03. Web simulation of IEEE 754 decimal32 (decimal single precision,
 densely packed decimal encoding).
 
+**Members:**
+
+ALCASID, Aizy Danielle
+
+DIMAUNAHAN, Chelsea Jei
+
+PANGAN, Aaliyah Maxine Rochelle
+
+ROA, Luis Antonio
+
+SANIDAD, Christian Gabriel
+
+## Links
 - **Live site:** https://chiramisu.github.io/CSARCH2-S03-G4-case-study-1/
 - **Video walkthrough:** https://youtu.be/CS-QxQ9s8cE
 
